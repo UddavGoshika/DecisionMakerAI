@@ -8,6 +8,10 @@ import { motion } from "framer-motion";
 import { Mic, Send, Sparkles, Star, Volume2, Share2 } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import domtoimage from "dom-to-image";
+import Confetti from "react-confetti";
+import { useWindowSize } from "react-use"; // to fit screen size
+import FingerprintJS from "@fingerprintjs/fingerprintjs";
+
 
 
 /* =========================================================
@@ -55,6 +59,14 @@ interface Template {
   name: string;
   prompt: string;
 }
+
+const getDeviceId = async () => {
+  const fp = await FingerprintJS.load();
+  const result = await fp.get();
+  return result.visitorId;
+};
+
+
 
 /* =========================================================
    HELPERS
@@ -170,8 +182,26 @@ const [showContact, setShowContact] = useState(false);
 const [mounted, setMounted] = useState(false);
 
 useEffect(() => {
-  setMounted(true);
+  const expiry = localStorage.getItem("premiumExpiry");
+  if (expiry && new Date(expiry) > new Date()) {
+    setIsPremium(true);
+  } else {
+    setIsPremium(false);
+    localStorage.removeItem("premium");
+    localStorage.removeItem("premiumExpiry");
+  }
 }, []);
+
+const [showConfetti, setShowConfetti] = useState(false);
+
+
+
+const { width, height } = useWindowSize();
+
+{showConfetti && <Confetti width={width} height={height} />}
+
+
+
 
   /* ---- onboarding ---- */
   const [showOnboarding, setShowOnboarding] = useState(true);
@@ -192,14 +222,7 @@ const current = Number(localStorage.getItem(key) ?? 0);
 setFreeCount(current);
   }, []);
 
-  const bumpFree = () => {
-    // const key = "lifetime-free-count";
-const n = freeCount + 1;
-setFreeCount(n);
-const key = `free-${new Date().toISOString().slice(0, 10)}`;
-localStorage.setItem(key, String(freeCount + 1));
-localStorage.setItem(key, String(n));
-  };
+  
 
   /* ---- speech ---- */
   const recRef = useRef<SpeechRecognitionMinimal | null>(null);
@@ -260,7 +283,43 @@ localStorage.setItem(key, String(n));
     }
   };
 
+const handleActivatePremium = async () => {
+  const code = prompt("Enter your premium code:");
+  if (!code) return;
 
+  const res = await fetch("/api/verifycode", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+
+  const data = await res.json();
+  if (data.success) {
+    console.log("Verify response:", data);
+
+    localStorage.setItem("premium", "true");
+    localStorage.setItem("premiumExpiry", data.expiry);
+    setIsPremium(true);
+    setShowConfetti(true);
+  setTimeout(() => setShowConfetti(false), 5000); // stop after 5 seconds
+  alert("✅ Premium Activated! Valid until " + new Date(data.expiry).toLocaleDateString());
+      if (!isPremium) bumpFree();
+
+
+  } else {
+    alert("❌ Invalid code");
+  }
+};
+  const bumpFree = () => {
+    // const key = "lifetime-free-count";
+const n = freeCount + 1;
+setFreeCount(n);
+  // unique key per day (ex: free-2025-08-19)
+  const key = `free-${new Date().toISOString().slice(0, 10)}`;
+
+  // save updated count
+  localStorage.setItem(key, String(n));
+  };
 
 
 const translateText = async (text: string, targetLang: string): Promise<string> => {
@@ -286,6 +345,16 @@ const translateText = async (text: string, targetLang: string): Promise<string> 
 };
 
 
+{isPremium && showConfetti && (
+  <div className="absolute inset-0 flex items-center justify-center">
+    <div className="bg-white shadow-lg rounded-2xl p-6 text-center animate-bounce">
+      <h2 className="text-2xl font-bold text-green-600">🌟 Premium Activated!</h2>
+      <p className="mt-2 text-gray-700">
+        Valid until {new Date(localStorage.getItem("premiumExpiry") || "").toLocaleDateString()}
+      </p>
+    </div>
+  </div>
+)}
 
 
 
@@ -302,11 +371,31 @@ const translateText = async (text: string, targetLang: string): Promise<string> 
     { name: "Investing", prompt: "Should I invest in stocks, bonds, or real estate?" },
   ];
 
- 
+  
 
 
 const handleSend = async (): Promise<void> => {
   if (!input.trim() || loading) return;
+  const deviceId = await getDeviceId(); // 👈 get unique device ID
+
+  if (!isPremium && freeCount >= 2) {
+    setResult({
+      title: "⚠️ Daily Limit Reached",
+      summary: "You have used your 2 free tries for today.",
+      recommendation: "Upgrade to Premium / Buy a Coffee for me 🚀 for unlimited decisions.",
+      options: [],
+    });
+    return;
+  }
+
+  if (!isPremium) {
+    const today = new Date().toISOString().slice(0, 10);
+    const key = `free-${today}`;
+    const current = Number(localStorage.getItem(key) ?? 0);
+    localStorage.setItem(key, String(current + 1));
+    setFreeCount(current + 1);
+  }
+
 
   setLoading(true);
   setResult(null);
@@ -320,6 +409,8 @@ const handleSend = async (): Promise<void> => {
         prompt: input,
         isPremium,
         userProfile,
+              deviceId, // 👈 send to backend
+
       }),
     });
 
@@ -399,13 +490,24 @@ setResult(parsed);
      RENDER
   ========================================================= */
   return (
+
+
+
+    
     <div
       className="min-h-screen w-full flex items-center justify-center p-4 sm:p-6 md:p-8 relative overflow-hidden"
+      
       style={{
         background:
           "linear-gradient(180deg, #7dd3fc 0%, #3b82f6 40%, #1e3a8a 70%, #7dd3fc 100%)",
       }}
     >
+      {isPremium && (
+  <div className="absolute top-10 right-10 bg-cyan-700 text-white font-bold px-3 py-1 rounded-full shadow-lg">
+    🌟 Premium 🎊🎗️
+  </div>
+)}
+
       {/* subtle star field */}
       <div className="pointer-events-none absolute inset-0 opacity-30">
         <svg width="100%" height="100%">
@@ -440,13 +542,20 @@ setResult(parsed);
         ) : (
           <>
             {/* Header */}
+
+
+        
+
+
+
+
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               className="rounded-3xl px-6 py-4 mb-6 bg-white/10 backdrop-blur-xl border border-white/20 shadow-2xl"
             >
               <h1 className="text-center text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight text-white bg-clip-text bg-gradient-to-r from-cyan-200 to-blue-300 flex items-center justify-center gap-2">
-                <Sparkles className="w-5 h-5" /> Decision Maker Online Tool{" "}
+                <Sparkles className="w-5 h-5" /> Decision Maker Helper {" "}
                 <Sparkles className="w-5 h-5" />
               </h1>
             </motion.div>
@@ -465,8 +574,7 @@ setResult(parsed);
                 <option value="de">German</option>
               </select>
             </div>
-
-            {/* Templates */}
+       {/* Templates */}
             <div className="mb-4 flex flex-wrap gap-2">
               {templates.map((t) => (
                 <button
@@ -477,8 +585,11 @@ setResult(parsed);
                   {t.name}
                 </button>
               ))}
+             
             </div>
-
+ 
+                
+     
             {/* Input Card */}
             <motion.div
               initial={{ opacity: 0, y: 10 }}
@@ -503,6 +614,13 @@ setResult(parsed);
                   {loading ? "…" : <Send className="w-4 h-4" />}
                 </button>
               </div>
+              {!isPremium && (
+  <p className="text-sm text-white-100 text-center mt-2">
+    Free tries left today: {Math.max(0, 2 - freeCount)} / 2
+  </p>
+)}
+
+
 
               {/* Voice + Upgrade Row */}
               <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -532,7 +650,16 @@ setResult(parsed);
                 >
                   <Star className="w-3 h-4"  />  Buy a coffee🍵...
                 </button>
+              
+
               </div>
+
+                <button
+  onClick={handleActivatePremium}
+  className="w-full mt-3  bg-white-500 cursor-pointer hover:bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white font-bold rounded-2xl"
+>
+  Already Bought..? Activate Premium
+</button>
             </motion.div>
 
             {result && (
@@ -649,8 +776,8 @@ setResult(parsed);
                   hidden viewpoints.
                 </p>
                 <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm mb-4">
-                  <li className="rounded-2xl bg-white/10 p-3">✅ Unlimited insights</li>
-                  <li className="rounded-2xl bg-white/10 p-3">🛰️ Hidden viewpoints</li>
+                  <li className="rounded-2xl bg-white/10 p-3">✅ Unlimited insights & No waiting / Queue</li>
+                  <li className="rounded-2xl bg-white/10 p-3">🛰️ Hidden viewpoints &personalized suggestions</li>
                   <li className="rounded-2xl bg-white/10 p-3">📊 Detailed outcome charts</li>
                   <li className="rounded-2xl bg-white/10 p-3">🗣️ Voice playback</li>
                 </ul>
@@ -670,6 +797,10 @@ setResult(parsed);
                   >
                     Back
                   </button>
+
+
+
+                  
                   {/* <button
                     onClick={() => setPage("chat")}
                     className="rounded-full px-5 py-3 bg-white/20"
