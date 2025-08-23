@@ -212,7 +212,7 @@ import crypto from "crypto";
 
 // Simple in-memory store (reset on restart)
 // Replace with DB if you want persistence
-let usageMap: Record<string, { count: number; date: string }> = {};
+const usageMap: Record<string, { count: number; date: string }> = {};
 
 export async function POST(req: Request) {
   try {
@@ -317,9 +317,9 @@ Always return valid JSON ONLY in this format:
     const data = await res.json();
     return NextResponse.json(data);
 
-  } catch (err: any) {
+  } catch (err: unknown) {
     return NextResponse.json(
-      { error: "server_error", message: err.message },
+      { error: "server_error", message: String(err) },
       { status: 500 }
     );
   }
